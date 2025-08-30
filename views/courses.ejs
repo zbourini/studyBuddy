@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Courses</title>
+</head>
+<body>
+    <h1>Your Courses</h1>
+    <ul>
+        <% user.courses.forEach(function(course) { %>
+            <li>
+                <%= course %>
+                <form method="POST" action="/courses/remove" style="display:inline;">
+                    <input type="hidden" name="course" value="<%= course %>">
+                    <button type="submit">Remove</button>
+                </form>
+            </li>
+        <% }); %>
+    </ul>
+    <form method="POST" action="/courses/add">
+        <input type="text" name="course" placeholder="Add a course" required>
+        <button type="submit">Add Course</button>
+    </form>
+    <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>
