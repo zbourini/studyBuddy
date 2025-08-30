@@ -11,6 +11,7 @@ const users = [];
 
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 app.use(session({
     secret: 'mysecretkey', // Replace with a real secret key in production
     resave: false,
@@ -144,3 +145,6 @@ app.get('/logout', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
+
+// Export app for testing
+module.exports = app;
