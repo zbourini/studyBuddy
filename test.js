@@ -374,3 +374,148 @@ describe('Dashboard and Sessions View', () => {
         expect(sessionsRes.text).toContain('Incoming request with Suggested Match');
     });
 });
+
+// US-13: Filter Search Results by major and availability
+describe('Search Filters (US-13)', () => {
+    it('should filter search results by major and overlapping availability', async () => {
+        // Register current user
+        await request(app).post('/register').send({
+            username: 'filter.current@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Filter', lastName: 'Current', major: 'CS'
+        });
+        const agentCur = request.agent(app);
+        await agentCur.post('/login').send({ username: 'filter.current@clemson.edu', password: 'password123' });
+        await agentCur.post('/availability').send({ availability: ['Monday-10:00', 'Tuesday-12:00'] });
+
+        // Register candidates
+        await request(app).post('/register').send({ username: 'filter.cs@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Filter', lastName: 'CS', major: 'CS' });
+        await request(app).post('/register').send({ username: 'filter.ece@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Filter', lastName: 'ECE', major: 'ECE' });
+        await request(app).post('/register').send({ username: 'filter.cs.no@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Filter', lastName: 'NoOverlap', major: 'CS' });
+
+        // Set their courses and availability
+        const aCS = request.agent(app);
+        await aCS.post('/login').send({ username: 'filter.cs@clemson.edu', password: 'password123' });
+        await aCS.post('/courses/add').send({ course: 'FILTR 1010' });
+        await aCS.post('/availability').send({ availability: ['Monday-10:00'] });
+
+        const aECE = request.agent(app);
+        await aECE.post('/login').send({ username: 'filter.ece@clemson.edu', password: 'password123' });
+        await aECE.post('/courses/add').send({ course: 'FILTR 1010' });
+        await aECE.post('/availability').send({ availability: ['Monday-10:00'] });
+
+        const aCSNo = request.agent(app);
+        await aCSNo.post('/login').send({ username: 'filter.cs.no@clemson.edu', password: 'password123' });
+        await aCSNo.post('/courses/add').send({ course: 'FILTR 1010' });
+        await aCSNo.post('/availability').send({ availability: ['Wednesday-14:00'] });
+
+        // Perform search with course, major=CS, availability=Monday-10:00
+        const res = await agentCur
+            .post('/search')
+            .send({ course: 'FILTR 1010', major: 'CS', availabilityFilter: 'Monday-10:00' });
+
+        expect(res.statusCode).toBe(200);
+        // Should include CS candidate with overlap
+        expect(res.text).toContain('filter.cs@clemson.edu');
+        // Should exclude ECE major
+        expect(res.text).not.toContain('filter.ece@clemson.edu');
+        // Should exclude CS candidate without overlap
+        expect(res.text).not.toContain('filter.cs.no@clemson.edu');
+    });
+});
+
+// US-10: Cancel a Scheduled Session
+describe('Cancel Scheduled Session (US-10)', () => {
+    it('should cancel an accepted session by a participant', async () => {
+        // Register two users
+        await request(app).post('/register').send({ username: 'cancel.a@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Cancel', lastName: 'One', major: 'CS' });
+        await request(app).post('/register').send({ username: 'cancel.b@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Cancel', lastName: 'Two', major: 'CS' });
+
+        const aA = request.agent(app);
+        await aA.post('/login').send({ username: 'cancel.a@clemson.edu', password: 'password123' });
+        await aA.post('/courses/add').send({ course: 'CANC 1010' });
+        await aA.post('/availability').send({ availability: ['Wednesday-16:00'] });
+
+        const aB = request.agent(app);
+        await aB.post('/login').send({ username: 'cancel.b@clemson.edu', password: 'password123' });
+        await aB.post('/courses/add').send({ course: 'CANC 1010' });
+        await aB.post('/availability').send({ availability: ['Wednesday-16:00'] });
+
+        // Find A id and send request from B to A
+        const usersRes = await aB.get('/users.json');
+        const userA = usersRes.body.find(u => u.username === 'cancel.a@clemson.edu');
+        await aB.post('/send-request').send({ recipientId: userA.id, course: 'CANC 1010', timeSlot: 'Wednesday-16:00' });
+
+        // A accepts
+        const inbox = await aA.get('/requests.json');
+        const reqId = inbox.body.incoming.find(r => r.status === 'pending').id;
+        await aA.post(`/requests/${reqId}/accept`).send();
+
+        // Cancel as A
+        const cancelRes = await aA.post(`/sessions/${reqId}/cancel`).send({ redirectTo: '/sessions' });
+        expect(cancelRes.statusCode).toBe(302);
+        expect(cancelRes.header.location).toBe('/sessions');
+
+        // Verify cancelled status
+        const after = await aA.get('/requests.json');
+        const cancelled = after.body.incoming.find(r => r.id === reqId);
+        expect(cancelled.status).toBe('cancelled');
+
+        // Confirm not shown in confirmed sessions page
+        const sessionsRes = await aA.get('/sessions');
+        expect(sessionsRes.text).not.toContain('With: Cancel Two');
+    });
+
+    it('should not allow canceling a pending request', async () => {
+        await request(app).post('/register').send({ username: 'pend.a@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Pend', lastName: 'A', major: 'CS' });
+        await request(app).post('/register').send({ username: 'pend.b@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Pend', lastName: 'B', major: 'CS' });
+
+        const aA = request.agent(app);
+        await aA.post('/login').send({ username: 'pend.a@clemson.edu', password: 'password123' });
+        await aA.post('/courses/add').send({ course: 'PEND 1010' });
+        await aA.post('/availability').send({ availability: ['Thursday-10:00'] });
+
+        const aB = request.agent(app);
+        await aB.post('/login').send({ username: 'pend.b@clemson.edu', password: 'password123' });
+        await aB.post('/courses/add').send({ course: 'PEND 1010' });
+        await aB.post('/availability').send({ availability: ['Thursday-10:00'] });
+
+        const usersRes = await aA.get('/users.json');
+        const userB = usersRes.body.find(u => u.username === 'pend.b@clemson.edu');
+        await aA.post('/send-request').send({ recipientId: userB.id, course: 'PEND 1010', timeSlot: 'Thursday-10:00' });
+
+        // Attempt to cancel pending as requester (A)
+        const out = await aA.get('/requests.json');
+        const pending = out.body.outgoing.find(r => r.status === 'pending');
+        const resCancel = await aA.post(`/sessions/${pending.id}/cancel`).send();
+        expect(resCancel.statusCode).toBe(400);
+    });
+
+    it('should forbid cancellation by a non-participant', async () => {
+        // Set up an accepted session between X and Y
+        await request(app).post('/register').send({ username: 'acc.x@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Acc', lastName: 'X', major: 'CS' });
+        await request(app).post('/register').send({ username: 'acc.y@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Acc', lastName: 'Y', major: 'CS' });
+        await request(app).post('/register').send({ username: 'intruder@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'In', lastName: 'Truder', major: 'ME' });
+
+        const aX = request.agent(app);
+        await aX.post('/login').send({ username: 'acc.x@clemson.edu', password: 'password123' });
+        await aX.post('/courses/add').send({ course: 'SAFE 1010' });
+        await aX.post('/availability').send({ availability: ['Friday-15:00'] });
+
+        const aY = request.agent(app);
+        await aY.post('/login').send({ username: 'acc.y@clemson.edu', password: 'password123' });
+        await aY.post('/courses/add').send({ course: 'SAFE 1010' });
+        await aY.post('/availability').send({ availability: ['Friday-15:00'] });
+
+        const usersRes = await aX.get('/users.json');
+        const userY = usersRes.body.find(u => u.username === 'acc.y@clemson.edu');
+        await aX.post('/send-request').send({ recipientId: userY.id, course: 'SAFE 1010', timeSlot: 'Friday-15:00' });
+        const inboxY = await aY.get('/requests.json');
+        const reqId = inboxY.body.incoming.find(r => r.status === 'pending').id;
+        await aY.post(`/requests/${reqId}/accept`).send();
+
+        // Intruder tries to cancel
+        const aIntruder = request.agent(app);
+        await aIntruder.post('/login').send({ username: 'intruder@clemson.edu', password: 'password123' });
+        const resCancel = await aIntruder.post(`/sessions/${reqId}/cancel`).send();
+        expect(resCancel.statusCode).toBe(403);
+    });
+});

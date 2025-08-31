@@ -48,6 +48,10 @@
                             With: <%= otherUser ? otherUser.name : 'Unknown' %> |
                             Course: <%= s.course %> |
                             Time: <%= s.timeSlot %>
+                            <form method="POST" action="/sessions/<%= s.id %>/cancel" style="display:inline; margin-left:10px;">
+                                <input type="hidden" name="redirectTo" value="/dashboard">
+                                <button type="submit" class="button decline-button">Cancel</button>
+                            </form>
                         </li>
                     <% }); %>
                 </ul>

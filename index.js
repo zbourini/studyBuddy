@@ -166,25 +166,55 @@ app.post('/courses/remove', isAuthenticated, (req, res) => {
 
 // Search for classmates
 app.get('/search', isAuthenticated, (req, res) => {
-    res.render('search', { results: undefined });
+    const user = getCurrentUser(req);
+    res.render('search', { user, results: undefined, filters: {} });
 });
 
 app.post('/search', isAuthenticated, (req, res) => {
-    const { course } = req.body;
+    const { course, major: majorFilter, availabilityFilter } = req.body;
     const currentUser = getCurrentUser(req);
-    const matches = users.filter(user => user.username !== currentUser.username && user.courses.includes(course));
-    const results = matches.map(u => {
+
+    // Normalize filters
+    const selectedTimes = Array.isArray(availabilityFilter)
+        ? availabilityFilter
+        : availabilityFilter
+            ? [availabilityFilter]
+            : [];
+
+    // Base matches by course (if provided), otherwise all except self
+    const basePool = users.filter(u => u.username !== currentUser.username);
+    const courseFiltered = course
+        ? basePool.filter(u => (u.courses || []).includes(course))
+        : basePool;
+
+    // Build result objects with shared courses and overlapping availability
+    let results = courseFiltered.map(u => {
         const sharedCourses = (currentUser.courses || []).filter(c => (u.courses || []).includes(c));
         const overlapAvailability = (currentUser.availability || []).filter(slot => (u.availability || []).includes(slot));
         return {
             id: u.id,
             username: u.username,
             name: u.name,
+            major: u.major,
             sharedCourses,
             overlapAvailability
         };
     });
-    res.render('search', { results });
+
+    // Apply major filter (case-insensitive exact match) if provided
+    if (majorFilter && String(majorFilter).trim().length > 0) {
+        const mf = String(majorFilter).trim().toLowerCase();
+        results = results.filter(r => (r.major || '').toLowerCase() === mf);
+    }
+
+    // Apply availability filter (any overlap with selected times)
+    if (selectedTimes.length > 0) {
+        results = results.filter(r => (r.overlapAvailability || []).some(t => selectedTimes.includes(t)));
+    }
+
+    const user = currentUser;
+    const filters = { course: course || '', major: majorFilter || '', availability: selectedTimes };
+    res.render('search', { user, results, filters });
 });
 
 // Set availability
@@ -269,6 +299,20 @@ app.get('/sessions', isAuthenticated, (req, res) => {
     res.render('sessions', { user, confirmedSessions, pendingSessions, users });
 });
 
+// Cancel a scheduled (accepted) session
+app.post('/sessions/:id/cancel', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const reqId = parseInt(req.params.id, 10);
+    const found = sessionRequests.find(r => r.id === reqId);
+    if (!found) return res.status(404).send('Session not found.');
+    const isParticipant = found.fromUserId === user.id || found.toUserId === user.id;
+    if (!isParticipant) return res.status(403).send('Not authorized to cancel this session.');
+    if (found.status !== 'accepted') return res.status(400).send('Only accepted sessions can be canceled.');
+    found.status = 'cancelled';
+    const redirectTo = req.body.redirectTo || '/dashboard';
+    res.redirect(redirectTo);
+});
+
 // JSON endpoint to help tests fetch a user's requests
 app.get('/requests.json', isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
@@ -289,9 +333,12 @@ app.get('/users.json', isAuthenticated, (req, res) => {
     res.json(minimal);
 });
 
-app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-});
+// Only start the server if this file is run directly (not when imported by tests)
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`Server is running on http://localhost:${port}`);
+    });
+}
 
 // Export app for testing
 module.exports = app;
