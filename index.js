@@ -9,6 +9,9 @@ const port = 3000;
 // In-memory user store (for demonstration purposes)
 const users = [];
 let nextUserId = 1;
+// In-memory session requests store
+const sessionRequests = [];
+let nextRequestId = 1;
 
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -94,7 +97,9 @@ app.post('/login', async (req, res) => {
 
 app.get('/dashboard', isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
-    res.render('dashboard', { user });
+    const incomingRequests = sessionRequests.filter(r => r.toUserId === user.id && r.status === 'pending');
+    const outgoingRequests = sessionRequests.filter(r => r.fromUserId === user.id);
+    res.render('dashboard', { user, incomingRequests, outgoingRequests, users });
 });
 
 // Profile management
@@ -139,14 +144,25 @@ app.post('/courses/remove', isAuthenticated, (req, res) => {
 
 // Search for classmates
 app.get('/search', isAuthenticated, (req, res) => {
-    res.render('search', { students: undefined });
+    res.render('search', { results: undefined });
 });
 
 app.post('/search', isAuthenticated, (req, res) => {
     const { course } = req.body;
     const currentUser = getCurrentUser(req);
-    const students = users.filter(user => user.username !== currentUser.username && user.courses.includes(course));
-    res.render('search', { students });
+    const matches = users.filter(user => user.username !== currentUser.username && user.courses.includes(course));
+    const results = matches.map(u => {
+        const sharedCourses = (currentUser.courses || []).filter(c => (u.courses || []).includes(c));
+        const overlapAvailability = (currentUser.availability || []).filter(slot => (u.availability || []).includes(slot));
+        return {
+            id: u.id,
+            username: u.username,
+            name: u.name,
+            sharedCourses,
+            overlapAvailability
+        };
+    });
+    res.render('search', { results });
 });
 
 // Set availability
@@ -162,10 +178,85 @@ app.post('/availability', isAuthenticated, (req, res) => {
     res.redirect('/dashboard');
 });
 
+// Send a study session request
+app.post('/send-request', isAuthenticated, (req, res) => {
+    try {
+        const { recipientId, course, timeSlot } = req.body;
+        const fromUser = getCurrentUser(req);
+        const toUser = users.find(u => u.id === parseInt(recipientId, 10));
+
+        if (!toUser) return res.status(400).send('Recipient not found.');
+        if (toUser.id === fromUser.id) return res.status(400).send('Cannot send request to yourself.');
+
+        // Validate shared course
+        if (!fromUser.courses.includes(course) || !toUser.courses.includes(course)) {
+            return res.status(400).send('You must share the selected course.');
+        }
+
+        // Validate overlapping time slot
+        const overlap = (fromUser.availability || []).includes(timeSlot) && (toUser.availability || []).includes(timeSlot);
+        if (!overlap) {
+            return res.status(400).send('Selected time slot is not available for both users.');
+        }
+
+        const newReq = {
+            id: nextRequestId++,
+            fromUserId: fromUser.id,
+            toUserId: toUser.id,
+            course,
+            timeSlot,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        };
+        sessionRequests.push(newReq);
+        res.redirect('/dashboard');
+    } catch (e) {
+        res.status(500).send('Error sending request.');
+    }
+});
+
+// Accept a study session request
+app.post('/requests/:id/accept', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const reqId = parseInt(req.params.id, 10);
+    const found = sessionRequests.find(r => r.id === reqId);
+    if (!found) return res.status(404).send('Request not found.');
+    if (found.toUserId !== user.id) return res.status(403).send('Not authorized to accept this request.');
+    if (found.status !== 'pending') return res.status(400).send('Request is not pending.');
+    found.status = 'accepted';
+    res.redirect('/dashboard');
+});
+
+// Decline a study session request
+app.post('/requests/:id/decline', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const reqId = parseInt(req.params.id, 10);
+    const found = sessionRequests.find(r => r.id === reqId);
+    if (!found) return res.status(404).send('Request not found.');
+    if (found.toUserId !== user.id) return res.status(403).send('Not authorized to decline this request.');
+    if (found.status !== 'pending') return res.status(400).send('Request is not pending.');
+    found.status = 'declined';
+    res.redirect('/dashboard');
+});
+
+// JSON endpoint to help tests fetch a user's requests
+app.get('/requests.json', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const incoming = sessionRequests.filter(r => r.toUserId === user.id);
+    const outgoing = sessionRequests.filter(r => r.fromUserId === user.id);
+    res.json({ incoming, outgoing });
+});
+
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
         res.redirect('/login');
     });
+});
+
+// Minimal users listing (authenticated) for testing and UI support
+app.get('/users.json', isAuthenticated, (req, res) => {
+    const minimal = users.map(u => ({ id: u.id, username: u.username, name: u.name, major: u.major }));
+    res.json(minimal);
 });
 
 app.listen(port, () => {

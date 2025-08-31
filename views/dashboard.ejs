@@ -12,5 +12,40 @@
     <a href="/search">Search for Classmates</a><br>
     <a href="/availability">Set Availability</a><br>
     <a href="/logout">Logout</a>
+
+    <hr>
+    <h2>Incoming Session Requests</h2>
+    <% if ((incomingRequests || []).length === 0) { %>
+        <p>No incoming requests.</p>
+    <% } else { %>
+        <ul>
+            <% incomingRequests.forEach(r => { const from = users.find(u => u.id === r.fromUserId); %>
+                <li>
+                    From: <%= from ? from.name : 'Unknown' %> (<%= from ? from.username : '' %>) | Course: <%= r.course %> | Time: <%= r.timeSlot %> | Status: <%= r.status %>
+                    <% if (r.status === 'pending') { %>
+                    <form method="POST" action="/requests/<%= r.id %>/accept" style="display:inline;">
+                        <button type="submit">Accept</button>
+                    </form>
+                    <form method="POST" action="/requests/<%= r.id %>/decline" style="display:inline;">
+                        <button type="submit">Decline</button>
+                    </form>
+                    <% } %>
+                </li>
+            <% }); %>
+        </ul>
+    <% } %>
+
+    <h2>Outgoing Session Requests</h2>
+    <% if ((outgoingRequests || []).length === 0) { %>
+        <p>No outgoing requests.</p>
+    <% } else { %>
+        <ul>
+            <% outgoingRequests.forEach(r => { const to = users.find(u => u.id === r.toUserId); %>
+                <li>
+                    To: <%= to ? to.name : 'Unknown' %> (<%= to ? to.username : '' %>) | Course: <%= r.course %> | Time: <%= r.timeSlot %> | Status: <%= r.status %>
+                </li>
+            <% }); %>
+        </ul>
+    <% } %>
 </body>
 </html>

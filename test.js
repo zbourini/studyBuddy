@@ -225,3 +225,91 @@ describe('Availability', () => {
         expect(res.header.location).toBe('/dashboard');
     });
 });
+
+describe('Study Session Requests', () => {
+    it('should send a session request only if users share course and time', async () => {
+        // Register two users
+        await request(app).post('/register').send({
+            username: 'req1@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Req', lastName: 'One', major: 'CS'
+        });
+        await request(app).post('/register').send({
+            username: 'req2@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Req', lastName: 'Two', major: 'CS'
+        });
+
+        // Login users and set courses/availability
+        const a1 = request.agent(app);
+        await a1.post('/login').send({ username: 'req1@clemson.edu', password: 'password123' });
+        await a1.post('/courses/add').send({ course: 'CPSC 2120' });
+        await a1.post('/availability').send({ availability: ['Monday-10:00'] });
+
+        const a2 = request.agent(app);
+        await a2.post('/login').send({ username: 'req2@clemson.edu', password: 'password123' });
+        await a2.post('/courses/add').send({ course: 'CPSC 2120' });
+        await a2.post('/availability').send({ availability: ['Monday-10:00'] });
+
+        // Find req1's id via users.json
+        const usersRes = await a2.get('/users.json');
+        const user1 = usersRes.body.find(u => u.username === 'req1@clemson.edu');
+
+        // Send request from req2 to req1
+        const sendRes = await a2.post('/send-request').send({
+            recipientId: user1.id,
+            course: 'CPSC 2120',
+            timeSlot: 'Monday-10:00'
+        });
+        expect(sendRes.statusCode).toBe(302);
+        expect(sendRes.header.location).toBe('/dashboard');
+
+        // Verify it appears in req1's incoming
+        const incomingAgent = request.agent(app);
+        await incomingAgent.post('/login').send({ username: 'req1@clemson.edu', password: 'password123' });
+        const reqsRes = await incomingAgent.get('/requests.json');
+        expect(reqsRes.statusCode).toBe(200);
+        const incoming = reqsRes.body.incoming;
+        expect(incoming.length).toBeGreaterThan(0);
+        expect(incoming[0].status).toBe('pending');
+    });
+
+    it('should accept and decline session requests', async () => {
+        // Register and set up two users
+        await request(app).post('/register').send({
+            username: 'acc1@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Acc', lastName: 'One', major: 'CS'
+        });
+        await request(app).post('/register').send({
+            username: 'acc2@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Acc', lastName: 'Two', major: 'CS'
+        });
+
+        const a1 = request.agent(app);
+        await a1.post('/login').send({ username: 'acc1@clemson.edu', password: 'password123' });
+        await a1.post('/courses/add').send({ course: 'MATH 1060' });
+        await a1.post('/availability').send({ availability: ['Tuesday-14:00'] });
+
+        const a2 = request.agent(app);
+        await a2.post('/login').send({ username: 'acc2@clemson.edu', password: 'password123' });
+        await a2.post('/courses/add').send({ course: 'MATH 1060' });
+        await a2.post('/availability').send({ availability: ['Tuesday-14:00'] });
+
+        const usersRes = await a2.get('/users.json');
+        const user1 = usersRes.body.find(u => u.username === 'acc1@clemson.edu');
+
+        await a2.post('/send-request').send({ recipientId: user1.id, course: 'MATH 1060', timeSlot: 'Tuesday-14:00' });
+
+        // acc1 accepts
+        const inbox = await a1.get('/requests.json');
+        const reqId = inbox.body.incoming[0].id;
+        const acceptRes = await a1.post(`/requests/${reqId}/accept`).send();
+        expect(acceptRes.statusCode).toBe(302);
+        const afterAccept = await a1.get('/requests.json');
+        expect(afterAccept.body.incoming[0].status).toBe('accepted');
+
+        // acc2 sends another then acc1 declines
+        await a2.post('/send-request').send({ recipientId: user1.id, course: 'MATH 1060', timeSlot: 'Tuesday-14:00' });
+        const inbox2 = await a1.get('/requests.json');
+        const pending = inbox2.body.incoming.find(r => r.status === 'pending');
+        const declineRes = await a1.post(`/requests/${pending.id}/decline`).send();
+        expect(declineRes.statusCode).toBe(302);
+        const afterDecline = await a1.get('/requests.json');
+        const declined = afterDecline.body.incoming.find(r => r.id === pending.id);
+        expect(declined.status).toBe('declined');
+    });
+});
