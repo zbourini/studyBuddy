@@ -8,6 +8,7 @@ const port = 3000;
 
 // In-memory user store (for demonstration purposes)
 const users = [];
+let nextUserId = 1;
 
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -64,7 +65,7 @@ app.post('/register', async (req, res) => {
 
         const name = `${firstName} ${lastName}`;
         const hashedPassword = await bcrypt.hash(password, 10);
-        users.push({ username, password: hashedPassword, name, major, courses: [] });
+        users.push({ id: nextUserId++, username, password: hashedPassword, name, major, courses: [], availability: [] });
         res.redirect('/login');
     } catch (error) {
         res.status(500).send('Error registering user.');
@@ -134,6 +135,31 @@ app.post('/courses/remove', isAuthenticated, (req, res) => {
     const { course } = req.body;
     user.courses = user.courses.filter(c => c !== course);
     res.redirect('/courses');
+});
+
+// Search for classmates
+app.get('/search', isAuthenticated, (req, res) => {
+    res.render('search', { students: undefined });
+});
+
+app.post('/search', isAuthenticated, (req, res) => {
+    const { course } = req.body;
+    const currentUser = getCurrentUser(req);
+    const students = users.filter(user => user.username !== currentUser.username && user.courses.includes(course));
+    res.render('search', { students });
+});
+
+// Set availability
+app.get('/availability', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    res.render('availability', { user });
+});
+
+app.post('/availability', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const { availability } = req.body;
+    user.availability = Array.isArray(availability) ? availability : [availability];
+    res.redirect('/dashboard');
 });
 
 app.get('/logout', (req, res) => {

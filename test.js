@@ -146,3 +146,82 @@ describe('Course Management', () => {
         expect(res.statusCode).toBe(302);
     });
 });
+
+describe('Search for Classmates', () => {
+    it('should find classmates in the same course', async () => {
+        // Register user 1
+        await request(app)
+            .post('/register')
+            .send({
+                username: 'student1@clemson.edu',
+                password: 'password123',
+                confirmPassword: 'password123',
+                firstName: 'Student',
+                lastName: 'One',
+                major: 'Biology'
+            });
+
+        // Register user 2
+        await request(app)
+            .post('/register')
+            .send({
+                username: 'student2@clemson.edu',
+                password: 'password123',
+                confirmPassword: 'password123',
+                firstName: 'Student',
+                lastName: 'Two',
+                major: 'Biology'
+            });
+
+        // Login as student 1 and add a course
+        const agent1 = request.agent(app);
+        await agent1
+            .post('/login')
+            .send({ username: 'student1@clemson.edu', password: 'password123' });
+        await agent1
+            .post('/courses/add')
+            .send({ course: 'BIOL 1010' });
+
+        // Login as student 2 and search for that course
+        const agent2 = request.agent(app);
+        await agent2
+            .post('/login')
+            .send({ username: 'student2@clemson.edu', password: 'password123' });
+        const res = await agent2
+            .post('/search')
+            .send({ course: 'BIOL 1010' });
+        
+        expect(res.statusCode).toBe(200);
+        expect(res.text).toContain('student1@clemson.edu');
+    });
+});
+
+describe('Availability', () => {
+    it('should allow a user to set their availability', async () => {
+        // Register a user
+        await request(app)
+            .post('/register')
+            .send({
+                username: 'avail@clemson.edu',
+                password: 'password123',
+                confirmPassword: 'password123',
+                firstName: 'Ava',
+                lastName: 'Ilable',
+                major: 'Scheduling'
+            });
+
+        // Login and set availability
+        const agent = request.agent(app);
+        await agent
+            .post('/login')
+            .send({ username: 'avail@clemson.edu', password: 'password123' });
+        
+        const availability = ['Monday-10:00', 'Wednesday-14:00'];
+        const res = await agent
+            .post('/availability')
+            .send({ availability });
+
+        expect(res.statusCode).toBe(302); // Redirects to dashboard
+        expect(res.header.location).toBe('/dashboard');
+    });
+});

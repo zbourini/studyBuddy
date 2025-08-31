@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search for Classmates</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Search for Classmates</h1>
+        <form action="/search" method="POST">
+            <div class="form-group">
+                <label for="course">Search by Course:</label>
+                <input type="text" class="form-control" id="course" name="course" placeholder="Enter course name (e.g., CPSC 2120)">
+            </div>
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+
+        <% if (typeof students !== 'undefined') { %>
+            <h2 class="mt-5">Search Results</h2>
+            <% if (students.length > 0) { %>
+                <ul class="list-group">
+                    <% students.forEach(student => { %>
+                        <li class="list-group-item">
+                            <%= student.username %> - <%= student.email %>
+                            <form action="/send-request" method="POST" class="float-right">
+                                <input type="hidden" name="recipientId" value="<%= student.id %>">
+                                <button type="submit" class="btn btn-sm btn-success">Send Request</button>
+                            </form>
+                        </li>
+                    <% }); %>
+                </ul>
+            <% } else { %>
+                <p>No students found for this course.</p>
+            <% } %>
+        <% } %>
+    </div>
+</body>
+</html>
