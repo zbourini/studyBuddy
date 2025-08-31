@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>All Sessions</title>
+    <style>
+        body { font-family: sans-serif; }
+        .container { max-width: 800px; margin: auto; padding: 20px; }
+        .section { margin-bottom: 20px; }
+        h1, h2 { color: #333; }
+        a { text-decoration: none; color: #007bff; }
+        a:hover { text-decoration: underline; }
+        ul { list-style-type: none; padding: 0; }
+        li { background: #f4f4f4; margin-bottom: 10px; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>All Study Sessions</h1>
+        <a href="/dashboard">Back to Dashboard</a>
+
+        <div class="section">
+            <h2>Confirmed Sessions</h2>
+            <% if ((confirmedSessions || []).length === 0) { %>
+                <p>No confirmed sessions.</p>
+            <% } else { %>
+                <ul>
+                    <% confirmedSessions.forEach(s => {
+                        const otherUser = users.find(u => u.id === (s.fromUserId === user.id ? s.toUserId : s.fromUserId));
+                    %>
+                        <li>
+                            With: <%= otherUser ? otherUser.name : 'Unknown' %> |
+                            Course: <%= s.course %> |
+                            Time: <%= s.timeSlot %>
+                        </li>
+                    <% }); %>
+                </ul>
+            <% } %>
+        </div>
+
+        <div class="section">
+            <h2>Pending Sessions</h2>
+            <% if ((pendingSessions || []).length === 0) { %>
+                <p>No pending sessions.</p>
+            <% } else { %>
+                <ul>
+                    <% pendingSessions.forEach(s => {
+                        const otherUser = users.find(u => u.id === (s.fromUserId === user.id ? s.toUserId : s.fromUserId));
+                        const direction = s.fromUserId === user.id ? 'Outgoing' : 'Incoming';
+                    %>
+                        <li>
+                            <%= direction %> request with <%= otherUser ? otherUser.name : 'Unknown' %> |
+                            Course: <%= s.course %> |
+                            Time: <%= s.timeSlot %>
+                        </li>
+                    <% }); %>
+                </ul>
+            <% } %>
+        </div>
+    </div>
+</body>
+</html>

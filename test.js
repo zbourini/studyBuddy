@@ -313,3 +313,64 @@ describe('Study Session Requests', () => {
         expect(declined.status).toBe('declined');
     });
 });
+
+describe('Dashboard and Sessions View', () => {
+    it('should display upcoming sessions, suggested matches, and all sessions correctly', async () => {
+        // 1. Register three users
+        await request(app).post('/register').send({ username: 'main@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Main', lastName: 'User', major: 'CS' });
+        await request(app).post('/register').send({ username: 'partner@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Session', lastName: 'Partner', major: 'ECE' });
+        await request(app).post('/register').send({ username: 'match@clemson.edu', password: 'password123', confirmPassword: 'password123', firstName: 'Suggested', lastName: 'Match', major: 'ME' });
+
+        // 2. Log in users and set up their profiles
+        const agentMain = request.agent(app);
+        await agentMain.post('/login').send({ username: 'main@clemson.edu', password: 'password123' });
+        await agentMain.post('/courses/add').send({ course: 'CPSC 1010' });
+        await agentMain.post('/courses/add').send({ course: 'ENGL 1030' });
+        await agentMain.post('/availability').send({ availability: ['Monday-10:00', 'Tuesday-12:00'] });
+
+        const agentPartner = request.agent(app);
+        await agentPartner.post('/login').send({ username: 'partner@clemson.edu', password: 'password123' });
+        await agentPartner.post('/courses/add').send({ course: 'CPSC 1010' });
+        await agentPartner.post('/availability').send({ availability: ['Monday-10:00'] });
+
+        const agentMatch = request.agent(app);
+        await agentMatch.post('/login').send({ username: 'match@clemson.edu', password: 'password123' });
+        await agentMatch.post('/courses/add').send({ course: 'ENGL 1030' });
+        await agentMatch.post('/availability').send({ availability: ['Tuesday-12:00'] });
+
+        // 3. Create an accepted session between Main and Partner
+        const usersRes = await agentMain.get('/users.json');
+        const partnerUser = usersRes.body.find(u => u.username === 'partner@clemson.edu');
+        await agentMain.post('/send-request').send({ recipientId: partnerUser.id, course: 'CPSC 1010', timeSlot: 'Monday-10:00' });
+        
+        const partnerInbox = await agentPartner.get('/requests.json');
+        const reqIdToAccept = partnerInbox.body.incoming[0].id;
+        await agentPartner.post(`/requests/${reqIdToAccept}/accept`);
+
+        // 4. Test Dashboard (US-14 & US-12)
+        const dashboardRes = await agentMain.get('/dashboard');
+        expect(dashboardRes.statusCode).toBe(200);
+        // Check for upcoming session
+        expect(dashboardRes.text).toContain('Upcoming Sessions');
+        expect(dashboardRes.text).toContain('With: Session Partner');
+        expect(dashboardRes.text).toContain('Course: CPSC 1010');
+        // Check for suggested match
+        expect(dashboardRes.text).toContain('Suggested Matches');
+        expect(dashboardRes.text).toContain('Suggested Match');
+        expect(dashboardRes.text).toContain('Mutual Courses: ENGL 1030');
+
+        // 5. Create a pending session for the sessions page test
+        const mainUser = usersRes.body.find(u => u.username === 'main@clemson.edu');
+        await agentMatch.post('/send-request').send({ recipientId: mainUser.id, course: 'ENGL 1030', timeSlot: 'Tuesday-12:00' });
+
+        // 6. Test All Sessions Page (US-09)
+        const sessionsRes = await agentMain.get('/sessions');
+        expect(sessionsRes.statusCode).toBe(200);
+        // Check for confirmed session
+        expect(sessionsRes.text).toContain('Confirmed Sessions');
+        expect(sessionsRes.text).toContain('With: Session Partner');
+        // Check for pending session
+        expect(sessionsRes.text).toContain('Pending Sessions');
+        expect(sessionsRes.text).toContain('Incoming request with Suggested Match');
+    });
+});

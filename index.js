@@ -99,7 +99,29 @@ app.get('/dashboard', isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
     const incomingRequests = sessionRequests.filter(r => r.toUserId === user.id && r.status === 'pending');
     const outgoingRequests = sessionRequests.filter(r => r.fromUserId === user.id);
-    res.render('dashboard', { user, incomingRequests, outgoingRequests, users });
+    const upcomingSessions = sessionRequests.filter(r => (r.fromUserId === user.id || r.toUserId === user.id) && r.status === 'accepted');
+
+    // Suggested Matches Logic
+    const suggestedMatches = users.map(otherUser => {
+        if (otherUser.id === user.id) return null;
+
+        const mutualCourses = (user.courses || []).filter(course => (otherUser.courses || []).includes(course));
+        const overlappingAvailability = (user.availability || []).filter(slot => (otherUser.availability || []).includes(slot));
+
+        if (mutualCourses.length > 0 && overlappingAvailability.length > 0) {
+            return {
+                id: otherUser.id,
+                name: otherUser.name,
+                major: otherUser.major,
+                mutualCourses,
+                overlappingAvailability,
+                score: mutualCourses.length + overlappingAvailability.length
+            };
+        }
+        return null;
+    }).filter(Boolean).sort((a, b) => b.score - a.score);
+
+    res.render('dashboard', { user, incomingRequests, outgoingRequests, upcomingSessions, suggestedMatches, users });
 });
 
 // Profile management
@@ -237,6 +259,14 @@ app.post('/requests/:id/decline', isAuthenticated, (req, res) => {
     if (found.status !== 'pending') return res.status(400).send('Request is not pending.');
     found.status = 'declined';
     res.redirect('/dashboard');
+});
+
+// View all sessions
+app.get('/sessions', isAuthenticated, (req, res) => {
+    const user = getCurrentUser(req);
+    const confirmedSessions = sessionRequests.filter(r => (r.fromUserId === user.id || r.toUserId === user.id) && r.status === 'accepted');
+    const pendingSessions = sessionRequests.filter(r => (r.fromUserId === user.id || r.toUserId === user.id) && r.status === 'pending');
+    res.render('sessions', { user, confirmedSessions, pendingSessions, users });
 });
 
 // JSON endpoint to help tests fetch a user's requests
